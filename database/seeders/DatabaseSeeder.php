@@ -86,5 +86,8 @@ class DatabaseSeeder extends Seeder
             "phone_number" => "081234567777",
             "address" => "istana negara",
         ]);
+
+
+
     }
 }
