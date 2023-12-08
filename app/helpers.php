@@ -1,7 +1,8 @@
 <?php
 
+use Intervention\Image\Image;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
-use Intervention\Image\ImageManagerStatic as Image;
 
 if (!function_exists('generateFiledCode')) {
     function generateFiledCode($code)
@@ -27,54 +28,98 @@ if (!function_exists('validationMessage')) {
     }
 }
 
+// app/helpers.php
+
 if (!function_exists('storeImage')) {
-    function storeImage($image_data, $folder_name, $slug = null, $max_width = 1200, $max_height = 800)
+    /**
+     * Store an image from base64 data.
+     *
+     * @param string $imageData  The base64-encoded image data or URL.
+     * @param string $folderName The folder name where the image will be stored.
+     * @param string $slug       The file name or slug for the image.
+     * @param int    $maxWidth   The maximum width of the image.
+     * @return string|bool       The stored file path or false on failure.
+     */
+    function storeImage($imageData, $folderName, $imageName, $maxWidth = 800)
     {
-        if ($slug === null) {
-            $slug = "IMG";
+        // check existing folder
+        if (!Storage::exists('public/' . $folderName)) {
+            Storage::makeDirectory('public/' . $folderName);
         }
 
-        $image_name = $slug . "-" . time() . '-' . rand(0, 99999) . '.jpg';
-        $path = public_path('assets/media/' . $folder_name);
-        $image_path = $path . '/' . $image_name;
+        // check if the image data is a URL
+        if (filter_var($imageData, FILTER_VALIDATE_URL)) {
+            // get the image data from the URL
+            $imageData = file_get_contents($imageData);
 
-        // Ensure the folder exists or create it
-        if (!file_exists($path)) {
-            mkdir($path, 0777, true);
-        }
+            // store the image
+            $imagePath = 'public/' . $folderName . '/' . $imageName . '.jpg';
 
-        // Fetch image content if it's a URL
-        if (filter_var($image_data, FILTER_VALIDATE_URL)) {
-            $imageContent = file_get_contents($image_data);
+            // store the image with file_put_contents
+            $store = file_put_contents(storage_path('app/' . $imagePath), $imageData);
 
-            // Check if content was fetched successfully
-            if ($imageContent !== false) {
-                $image = Image::make($imageContent)->resize($max_width, $max_height, function ($constraint) {
-                    $constraint->aspectRatio();
-                    $constraint->upsize();
-                });
-                $image->save($image_path);
-            }
-        } else {
-            // Extract base64 data
-            $base64Prefix = 'data:image';
-            if (strpos($image_data, $base64Prefix) !== false) {
-                $image_data = substr($image_data, strpos($image_data, ',') + 1);
-            }
-
-            // Decode image data
-            $image_data = base64_decode($image_data);
-
-            // Check if decoding was successful before saving and resizing
-            if ($image_data !== false) {
-                $image = Image::make($image_data)->resize($max_width, $max_height, function ($constraint) {
-                    $constraint->aspectRatio();
-                    $constraint->upsize();
-                });
-                $image->save($image_path);
+            // check if the image was stored
+            if ($store) {
+                return $imagePath;
             }
         }
 
-        return $image_name;
+        // check if the image data is base64-encoded
+        if (preg_match('/^data:image\/(\w+);base64,/', $imageData, $type)) {
+            // get the image type
+            $imageType = strtolower($type[1]);
+
+            // check if the image type is allowed
+            if (!in_array($imageType, ['jpg', 'jpeg', 'gif', 'png'])) {
+                return false;
+            }
+
+            // get the image data without the type prefix
+            $imageData = substr($imageData, strpos($imageData, ',') + 1);
+
+            // decode the base64 data
+            $imageData = base64_decode($imageData);
+
+            // check if the image was properly decoded
+            if (!$imageData) {
+                return false;
+            }
+
+            // create the image
+            $image = imagecreatefromstring($imageData);
+
+            // check if the image was created
+            if (!$image) {
+                return false;
+            }
+
+            // get the image width and height
+            $width = imagesx($image);
+            $height = imagesy($image);
+
+            // calculate the height from the given width to maintain the aspect ratio
+            $newHeight = floor($height * ($maxWidth / $width));
+
+            // create a new temporary image
+            $tmp = imagecreatetruecolor($maxWidth, $newHeight);
+
+            // copy and resize the old image into the new temporary image
+            imagecopyresampled($tmp, $image, 0, 0, 0, 0, $maxWidth, $newHeight, $width, $height);
+
+            // create the new image file
+            $imagePath = 'public/' . $folderName . '/' . $imageName . '.jpg';
+
+
+            // store the image with imagejpeg
+            $store = imagejpeg($tmp, storage_path('app/' . $imagePath), 100);
+
+            // check if the image was stored
+            if ($store) {
+                return $imagePath;
+            }
+        }
+
+        // return false if the image can't be stored
+        return false;
     }
 }

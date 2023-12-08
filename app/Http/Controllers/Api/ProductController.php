@@ -10,6 +10,7 @@ use Illuminate\Support\Facades\DB;
 use App\Models\ProductPriceVariant;
 use App\Http\Controllers\ApiController;
 use App\Models\ProductPriceVariantCategory;
+use Illuminate\Support\Facades\Storage;
 
 class ProductController extends ApiController
 {
@@ -85,12 +86,8 @@ class ProductController extends ApiController
         DB::beginTransaction();
         $product_code = generateFiledCode('PRODUCT');
         try {
-            // Upload photo
-            if ($request->photo != null) {
-                $photo_name = storeImage($request->photo, 'products', 'PRODUCT_IMG');
-            } else {
-                $photo_name = null;
-            }
+            $photoName = generateFiledCode('PRODUCT_IMG');
+            $photoPath = storeImage($request->photo, 'products', $photoName);
 
             $data = Product::create([
                 'product_code' => $product_code,
@@ -98,7 +95,7 @@ class ProductController extends ApiController
                 'name' => $request->name,
                 'selling_price' => $request->selling_price,
                 'is_price_variant' => $request->is_price_variant,
-                'photo' => $photo_name,
+                'photo' => $photoPath,
                 'category_code' => $request->category_code,
                 'capital_price' => $request->capital_price,
                 'sku' => $request->sku,
@@ -222,15 +219,12 @@ class ProductController extends ApiController
             // If has photo, check old_data, if its not null, delete old photo
             if ($request->photo != null) {
                 if ($data->photo != null) {
-                    $folder_name = 'products';
-                    $old_photo_path = public_path('assets/media/' . $folder_name . '/' . $data->photo);
-                    if (file_exists($old_photo_path)) {
-                        unlink($old_photo_path);
-                    }
+                    Storage::delete($data->photo);
                 }
-                $photo_name = storeImage($request->photo, 'products', 'PRODUCT_IMG');
+                $photoName = generateFiledCode('PRODUCT_IMG');
+                $photoPath = storeImage($request->photo, 'products', $photoName);
             } else {
-                $photo_name = $data->photo;
+                $photoPath = $data->photo;
             }
 
             $data->update([
@@ -238,13 +232,52 @@ class ProductController extends ApiController
                 'name' => $request->name,
                 'selling_price' => $request->selling_price,
                 'is_price_variant' => $request->is_price_variant,
-                'photo' => $photo_name,
+                'photo' => $photoPath,
                 'category_code' => $request->category_code,
                 'capital_price' => $request->capital_price,
                 'sku' => $request->sku,
                 'stock' => $request->stock,
             ]);
 
+            if ($request->is_price_variant == 1) {
+                $price_variant_data = $request->price_variant_data;
+                if ($price_variant_data == null) {
+                    return $this->sendError(4, 'Data variasi harga yang Anda masukkan kosong');
+                }
+                // check apakah data yang dimasukkan sesuai format product_price_variant_category_code:price|product_price_variant_category_code:price
+                if (!preg_match('/^([A-Z0-9_]+-\d+:\d+)(\|[A-Z0-9_]+-\d+:\d+)?$/', $price_variant_data)) {
+                    return $this->sendError(5, 'Data variasi harga yang Anda masukkan tidak sesuai format');
+                }
+
+                // check if product price variant is exist
+                $product_price_variant = ProductPriceVariant::where('product_code', $product_code)
+                    ->where('is_deleted', 0)
+                    ->get();
+
+                if ($product_price_variant->count() > 0) {
+                    // delete all product price variant
+                    foreach ($product_price_variant as $product_price_variant_item) {
+                        $product_price_variant_item->update([
+                            'is_deleted' => 1,
+                        ]);
+                    }
+                }
+
+                $price_variant_data = explode("|", $price_variant_data);
+
+                foreach ($price_variant_data as $price_variant_data_item) {
+                    $price_variant_data_item = explode(":", $price_variant_data_item);
+                    // Insert to DB
+                    ProductPriceVariant::create([
+                        'product_price_variant_code' => generateFiledCode('PRODUCT_PRICE_VARIANT'),
+                        'product_code' => $data->product_code,
+                        'product_price_variant_category_code' => $price_variant_data_item[0],
+                        'price' => $price_variant_data_item[1],
+                    ]);
+                }
+            }
+
+            DB::commit();
             return $this->sendResponse(0, "Product berhasil diupdate", $data);
         } catch (\Exception $e) {
             DB::rollBack();
