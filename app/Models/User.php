@@ -15,7 +15,7 @@ class User extends Authenticatable implements JWTSubject
 
     protected $table = 'users';
     protected $guarded = ['id'];
-    
+
     public function getJWTIdentifier()
     {
         return $this->getKey();

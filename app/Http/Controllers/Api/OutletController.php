@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Models\User;
 use App\Models\Outlet;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -16,7 +17,7 @@ class OutletController extends ApiController
         return $this->sendResponse(0, "Outlet berhasil ditemukan", $data);
     }
 
-    
+
     public function store(Request $request)
     {
         // === START:VALIDATION ===
@@ -47,7 +48,15 @@ class OutletController extends ApiController
                 'address' => $request->address,
                 'whatsapp_number' => $request->whatsapp_number ?? null,
             ]);
-            
+
+            // Update user total_outlet
+            $data_user = User::where('user_code', $user_code)->first();
+            $total_outlet = $data_user->total_outlet + 1;
+            $data_user->update([
+                'total_outlet' => $total_outlet,
+            ]);
+
+
             DB::commit();
             return $this->sendResponse(0, "Outlet berhasil ditambahkan", $data);
         } catch (\Exception $e) {
@@ -111,7 +120,7 @@ class OutletController extends ApiController
         $data = Outlet::where('outlet_code', $outlet_code)
                     ->where('is_deleted', 0)
                     ->first();
-        
+
         if (!$data) {
             return $this->sendError(1, "Outlet tidak ditemukan");
         }

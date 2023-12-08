@@ -11,9 +11,9 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::create('price_variants', function (Blueprint $table) {
+        Schema::create('product_price_variant_categories', function (Blueprint $table) {
             $table->id();
-            $table->string('price_variant_code', 255)->unique();
+            $table->string('product_price_variant_category_code', 255)->unique('unique_product_price_variant_category_code');
             $table->string('outlet_code', 255);
             $table->string('name', 255);
             $table->boolean('is_deleted')->default(false);
