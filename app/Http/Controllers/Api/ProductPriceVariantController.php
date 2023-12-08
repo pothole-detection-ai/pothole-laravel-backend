@@ -20,7 +20,7 @@ class ProductPriceVariantController extends ApiController
     {
         // === START:VALIDATION ===
         $rules = [
-            "outlet_code" => "required|max:255",
+            "product_code" => "required|max:255",
             "product_price_variant_category_code" => "required|max:255",
             "price" => "required|max:255",
         ];
@@ -38,7 +38,7 @@ class ProductPriceVariantController extends ApiController
         try {
             $data = ProductPriceVariant::create([
                 "product_price_variant_code" => $product_price_variant_code,
-                "outlet_code" => $request->outlet_code,
+                "product_code" => $request->product_code,
                 "product_price_variant_category_code" => $request->product_price_variant_category_code,
                 "price" => $request->price,
             ]);

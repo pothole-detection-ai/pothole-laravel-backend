@@ -53,10 +53,11 @@ if (!function_exists('storeImage')) {
             $imageData = file_get_contents($imageData);
 
             // store the image
-            $imagePath = 'public/' . $folderName . '/' . $imageName . '.jpg';
+            $imagePath = $folderName . '/' . $imageName . '.jpg';
+            $imagePublicPath = 'public/' . $imagePath;
 
             // store the image with file_put_contents
-            $store = file_put_contents(storage_path('app/' . $imagePath), $imageData);
+            $store = file_put_contents(storage_path('app/' . $imagePublicPath), $imageData);
 
             // check if the image was stored
             if ($store) {
@@ -107,11 +108,12 @@ if (!function_exists('storeImage')) {
             imagecopyresampled($tmp, $image, 0, 0, 0, 0, $maxWidth, $newHeight, $width, $height);
 
             // create the new image file
-            $imagePath = 'public/' . $folderName . '/' . $imageName . '.jpg';
+            $imagePath = $folderName . '/' . $imageName . '.jpg';
+            $imagePublicPath = 'public/' . $imagePath;
 
 
             // store the image with imagejpeg
-            $store = imagejpeg($tmp, storage_path('app/' . $imagePath), 100);
+            $store = imagejpeg($tmp, storage_path('app/' . $imagePublicPath), 100);
 
             // check if the image was stored
             if ($store) {

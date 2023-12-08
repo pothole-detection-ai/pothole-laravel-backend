@@ -9,7 +9,6 @@ use App\Models\ProductCategory;
 use Illuminate\Support\Facades\DB;
 use App\Models\ProductPriceVariant;
 use App\Http\Controllers\ApiController;
-use App\Models\ProductPriceVariantCategory;
 use Illuminate\Support\Facades\Storage;
 
 class ProductController extends ApiController
@@ -218,8 +217,8 @@ class ProductController extends ApiController
 
             // If has photo, check old_data, if its not null, delete old photo
             if ($request->photo != null) {
-                if ($data->photo != null) {
-                    Storage::delete($data->photo);
+                if ($data->photo != null && $data->photo != 'public/products/PRODUCT-DEFAULT.png') {
+                    Storage::delete('public/' .$data->photo);
                 }
                 $photoName = generateFiledCode('PRODUCT_IMG');
                 $photoPath = storeImage($request->photo, 'products', $photoName);
@@ -300,6 +299,10 @@ class ProductController extends ApiController
             $data->update([
                 'is_deleted' => 1,
             ]);
+
+            if ($data->photo != null && $data->photo != 'public/products/PRODUCT-DEFAULT.png') {
+                    Storage::delete('public/' .$data->photo);
+            }
 
             DB::commit();
             return $this->sendResponse(0, "Product berhasil dihapus", $data);
