@@ -16,6 +16,7 @@ return new class extends Migration
             $table->string('detection_code', 255);
             $table->string('detection_latitude', 255);
             $table->string('detection_longitude', 255);
+            $table->string('detection_location', 255)->nullable();
             $table->string('detection_image', 255);
             $table->string('detection_type', 255); // CAPTURE or REALTIME
             $table->string('detection_algorithm', 255); // YOLOV8-DEPTHINFO or MASKRCNN-SONARROBOT

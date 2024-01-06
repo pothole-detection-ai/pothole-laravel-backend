@@ -14,7 +14,7 @@ class DetectionController extends ApiController
     public function index()
     {
         $data = Detection::where('detections.is_deleted', 0)
-                        ->get();
+            ->get();
 
         return $this->sendResponse(0, "Data pendeteksian lubang berhasil ditemukan", $data);
     }
@@ -41,12 +41,12 @@ class DetectionController extends ApiController
 
         // => VALIDATE LAT LONG
         $detection_latitude = $request->detection_latitude;
-        if($detection_latitude < -90 || $detection_latitude > 90) {
+        if ($detection_latitude < -90 || $detection_latitude > 90) {
             return $this->sendError(2, "Nilai latitude tidak valid, harus berada diantara -90 dan 90");
         }
 
         $detection_longitude = $request->detection_longitude;
-        if($detection_longitude < -180 || $detection_longitude > 180) {
+        if ($detection_longitude < -180 || $detection_longitude > 180) {
             return $this->sendError(2, "Nilai longitude tidak valid, harus berada diantara -180 dan 180");
         }
 
@@ -54,26 +54,26 @@ class DetectionController extends ApiController
         $detection_image_name = generateFiledCode('DETECTION_IMAGE');
         $detection_image_folder = 'detection_images';
         $detection_image_path = storeImage($request->detection_image, $detection_image_folder, $detection_image_name);
-        if(!$detection_image_path) {
+        if (!$detection_image_path) {
             return $this->sendError(2, "Gambar harus berbentuk base64 atau URL");
         }
 
         // => VALIDATE DETECTION TYPE
         $detection_type = $request->detection_type;
-        if($detection_type != 'CAPTURE' && $detection_type != 'REALTIME') {
+        if ($detection_type != 'CAPTURE' && $detection_type != 'REALTIME') {
             return $this->sendError(2, "Tipe deteksi harus berupa CAPTURE atau REALTIME");
         }
 
         // => VALIDATE DETECTION ALGORITHM
         $detection_algorithm = $request->detection_algorithm;
-        if($detection_algorithm != 'YOLOV8-DEPTHINFO' && $detection_algorithm != 'MASKRCNN-SONARROBOT') {
+        if ($detection_algorithm != 'YOLOV8-DEPTHINFO' && $detection_algorithm != 'MASKRCNN-SONARROBOT') {
             return $this->sendError(2, "Algoritma pendeteksian harus berupa YOLOV8-DEPTHINFO atau MASKRCNN-SONARROBOT");
         }
 
         // => VALIDATE DETECTION BY (check if user_code exists)
         $detection_by = $request->detection_by;
         $check_user = DB::table('users')->where('user_code', $detection_by)->first();
-        if(!$check_user) {
+        if (!$check_user) {
             return $this->sendError(2, "User tidak ditemukan");
         }
 
@@ -82,7 +82,7 @@ class DetectionController extends ApiController
         $potholes = $this->validatePotholeData($pothole_data);
 
         // check if pothole_data is incorrect format
-        if(!is_array($potholes)) {
+        if (!is_array($potholes)) {
             return $this->sendError(2, $potholes);
         }
 
@@ -91,10 +91,22 @@ class DetectionController extends ApiController
         DB::beginTransaction();
         try {
             $detection_code = generateFiledCode('DETECTION');
+
+            // Get Location Name by Latitude and Longitude
+            $API_URL_REVERSE_GEOCODE = "https://geocode.maps.co/reverse?lat=$detection_latitude&lon=$detection_longitude&api_key=65975f7d3f14b145509135xly6961bd";
+            $request_reverse_geocode = file_get_contents($API_URL_REVERSE_GEOCODE);
+            if ($request_reverse_geocode) {
+                $location_reverse_geocode = json_decode($request_reverse_geocode, true);
+                $detection_location = $location_reverse_geocode['display_name'];
+            } else {
+                $detection_location = null;
+            }
+
             $data = Detection::create([
                 'detection_code' => $detection_code,
                 'detection_latitude' => $detection_latitude,
                 'detection_longitude' => $detection_longitude,
+                'detection_location' => $detection_location ?? null,
                 'detection_image' => $detection_image_path,
                 'detection_type' => $detection_type,
                 'detection_algorithm' => $detection_algorithm,
@@ -102,7 +114,7 @@ class DetectionController extends ApiController
             ]);
 
 
-            foreach($potholes as $pothole) {
+            foreach ($potholes as $pothole) {
                 Pothole::create([
                     'pothole_code' => generateFiledCode('POTHOLE'),
                     'pothole_detection_code' => $detection_code,
@@ -125,7 +137,8 @@ class DetectionController extends ApiController
         // === END:CREATE Pothole LOGIC ===
     }
 
-    public function validatePotholeData($pothole_data) {
+    public function validatePotholeData($pothole_data)
+    {
         // pothole_data contains:
         //    - pothole_object_number (numeric)
         //    - pothole_type || SERIOUSLY_DAMAGED or LESS_DAMAGED
@@ -135,18 +148,15 @@ class DetectionController extends ApiController
         // pothole_data format in string of array, it can be more than 1 pothole:
         //    - pothole_object_number:pothole_type:pothole_length:pothole_width:pothole_height||pothole_object_number:pothole_type:pothole_length:pothole_width:pothole_height||pothole_object_number:pothole_type:pothole_length:pothole_width:pothole_height
 
-        if(!is_string($pothole_data)) {
+        if (!is_string($pothole_data)) {
             return "Data pendeteksian lubang harus berupa string";
         }
 
-        // Regex pattern of 1 pothole
-        // $pothole_pattern = '/(\d+):(SERIOUSLY_DAMAGED|LESS_DAMAGED):(\d+):(\d+):(\d+)/';
-
         $potholes = [];
 
-        if(!strpos($pothole_data, '||')) {
+        if (!strpos($pothole_data, '||')) {
             // check contain colon or not
-            if(!strpos($pothole_data, ':')) {
+            if (!strpos($pothole_data, ':')) {
                 return "Data pendeteksian lubang harus berupa string dengan format: pothole_object_number:pothole_type:pothole_length:pothole_width:pothole_height";
             }
 
@@ -154,7 +164,7 @@ class DetectionController extends ApiController
             $pothole_data_array = explode(':', $pothole_data);
 
             // check if array length is 5
-            if(count($pothole_data_array) != 5) {
+            if (count($pothole_data_array) != 5) {
                 return "Data pendeteksian lubang harus berupa string dengan format: pothole_object_number:pothole_type:pothole_length:pothole_width:pothole_height";
             }
 
@@ -164,23 +174,23 @@ class DetectionController extends ApiController
             $pothole_width = $pothole_data_array[3];
             $pothole_height = $pothole_data_array[4];
 
-            if(!$this->validateNumeric($pothole_object_number)) {
+            if (!$this->validateNumeric($pothole_object_number)) {
                 return "pothole_object_number harus berupa angka";
             }
 
-            if(!$this->validatePotholeType($pothole_type)) {
+            if (!$this->validatePotholeType($pothole_type)) {
                 return "pothole_type harus berupa SERIOUSLY_DAMAGED atau LESS_DAMAGED";
             }
 
-            if(!$this->validateNumeric($pothole_length)) {
+            if (!$this->validateNumeric($pothole_length)) {
                 return "pothole_length harus berupa angka";
             }
 
-            if(!$this->validateNumeric($pothole_width)) {
+            if (!$this->validateNumeric($pothole_width)) {
                 return "pothole_width harus berupa angka";
             }
 
-            if(!$this->validateNumeric($pothole_height)) {
+            if (!$this->validateNumeric($pothole_height)) {
                 return "pothole_height harus berupa angka";
             }
 
@@ -191,28 +201,28 @@ class DetectionController extends ApiController
                     'pothole_length' => $pothole_length,
                     'pothole_width' => $pothole_width,
                     'pothole_height' => $pothole_height,
-                    ]
-                ];
+                ]
+            ];
         } else {
             $pothole_data_array = explode('||', $pothole_data);
 
             // check after the last || is empty or not
-            if($pothole_data_array[count($pothole_data_array) - 1] == '') {
+            if ($pothole_data_array[count($pothole_data_array) - 1] == '') {
                 return "Format pothole_data tidak valid. Hapus separator '||' diakhir string";
             }
 
             $i = 1;
-            foreach($pothole_data_array as $pothole_data) {
+            foreach ($pothole_data_array as $pothole_data) {
                 // check contain colon or not
-                if(!strpos($pothole_data, ':')) {
-                    return "Object ke-". $i ." => Data pendeteksian lubang harus berupa string dengan format: pothole_object_number:pothole_type:pothole_length:pothole_width:pothole_height";
+                if (!strpos($pothole_data, ':')) {
+                    return "Object ke-" . $i . " => Data pendeteksian lubang harus berupa string dengan format: pothole_object_number:pothole_type:pothole_length:pothole_width:pothole_height";
                 }
 
                 // if contains colon, explode it
                 $pothole_data_array = explode(':', $pothole_data);
 
                 // check if array length is 5
-                if(count($pothole_data_array) != 5) {
+                if (count($pothole_data_array) != 5) {
                     return "Data pendeteksian lubang harus berupa string dengan format: pothole_object_number:pothole_type:pothole_length:pothole_width:pothole_height||pothole_object_number:pothole_type:pothole_length:pothole_width:pothole_height";
                 }
 
@@ -222,24 +232,24 @@ class DetectionController extends ApiController
                 $pothole_width = $pothole_data_array[3];
                 $pothole_height = $pothole_data_array[4];
 
-                if(!$this->validateNumeric($pothole_object_number)) {
-                    return "Object ke-". $i ." pothole_object_number harus berupa angka";
+                if (!$this->validateNumeric($pothole_object_number)) {
+                    return "Object ke-" . $i . " pothole_object_number harus berupa angka";
                 }
 
-                if(!$this->validatePotholeType($pothole_type)) {
-                    return "Object ke-". $i ." pothole_type harus berupa SERIOUSLY_DAMAGED atau LESS_DAMAGED";
+                if (!$this->validatePotholeType($pothole_type)) {
+                    return "Object ke-" . $i . " pothole_type harus berupa SERIOUSLY_DAMAGED atau LESS_DAMAGED";
                 }
 
-                if(!$this->validateNumeric($pothole_length)) {
-                    return "Object ke-". $i ." pothole_length harus berupa angka";
+                if (!$this->validateNumeric($pothole_length)) {
+                    return "Object ke-" . $i . " pothole_length harus berupa angka";
                 }
 
-                if(!$this->validateNumeric($pothole_width)) {
-                    return "Object ke-". $i ." pothole_width harus berupa angka";
+                if (!$this->validateNumeric($pothole_width)) {
+                    return "Object ke-" . $i . " pothole_width harus berupa angka";
                 }
 
-                if(!$this->validateNumeric($pothole_height)) {
-                    return "Object ke-". $i ." => pothole_height harus berupa angka";
+                if (!$this->validateNumeric($pothole_height)) {
+                    return "Object ke-" . $i . " => pothole_height harus berupa angka";
                 }
 
                 $potholes[] = [
@@ -256,15 +266,17 @@ class DetectionController extends ApiController
         return $potholes;
     }
 
-    public function validateNumeric($pothole_object_number) {
-        if(!is_numeric($pothole_object_number)) {
+    public function validateNumeric($pothole_object_number)
+    {
+        if (!is_numeric($pothole_object_number)) {
             return false;
         }
         return true;
     }
 
-    public function validatePotholeType($pothole_type) {
-        if($pothole_type != 'SERIOUSLY_DAMAGED' && $pothole_type != 'LESS_DAMAGED') {
+    public function validatePotholeType($pothole_type)
+    {
+        if ($pothole_type != 'SERIOUSLY_DAMAGED' && $pothole_type != 'LESS_DAMAGED') {
             return false;
         }
         return true;
@@ -272,14 +284,25 @@ class DetectionController extends ApiController
 
     public function show(string $detection_code)
     {
-        $data = Detection::where('detection_code', $detection_code)
-                    ->where('is_deleted', 0)
-                    ->first();
-
-        if (!$data) {
+        $detection = Detection::where('detection_code', $detection_code)
+            ->where('is_deleted', 0)
+            ->first();
+        if (!$detection) {
             return $this->sendError(1, "Data pendeteksian lubang tidak ditemukan");
         }
-        return $this->sendResponse(0, "Data pendeteksian lubang berhasil ditemukan", $data);
+
+        $potholes = Pothole::where('pothole_detection_code', $detection_code)
+            ->where('is_deleted', 0)
+            ->get();
+
+        $potholes_with_volume = $potholes->map(function ($pothole) {
+            $pothole_volume = $pothole->pothole_length * $pothole->pothole_width * $pothole->pothole_height;
+            $pothole['pothole_volume'] = $pothole_volume;
+            return $pothole;
+        });
+        $detection['potholes'] = $potholes_with_volume;
+
+        return $this->sendResponse(0, "Data pendeteksian lubang berhasil ditemukan", $detection);
     }
 
     public function update(Request $request, string $detection_code)
@@ -302,19 +325,19 @@ class DetectionController extends ApiController
 
         // VALIDATE EXISTING DETECTION
         $check_detection = Detection::where('detection_code', $detection_code)
-                        ->where('is_deleted', 0)->first();
+            ->where('is_deleted', 0)->first();
         if (!$check_detection) {
             return $this->sendError(2, 'Data pendeteksian lubang tidak ditemukan');
         }
 
         // => VALIDATE LATITUDE LONGITUDE
         $detection_latitude = $request->detection_latitude;
-        if($detection_latitude < -90 || $detection_latitude > 90) {
+        if ($detection_latitude < -90 || $detection_latitude > 90) {
             return $this->sendError(2, "Nilai latitude tidak valid, harus berada diantara -90 dan 90");
         }
 
         $detection_longitude = $request->detection_longitude;
-        if($detection_longitude < -180 || $detection_longitude > 180) {
+        if ($detection_longitude < -180 || $detection_longitude > 180) {
             return $this->sendError(2, "Nilai longitude tidak valid, harus berada diantara -180 dan 180");
         }
 
@@ -322,26 +345,26 @@ class DetectionController extends ApiController
         $detection_image_name = generateFiledCode('DETECTION_IMAGE');
         $detection_image_folder = 'detection_images';
         $detection_image_path = storeImage($request->detection_image, $detection_image_folder, $detection_image_name);
-        if(!$detection_image_path) {
+        if (!$detection_image_path) {
             return $this->sendError(2, "Gambar harus berbentuk base64 atau URL");
         }
 
         // => VALIDATE DETECTION TYPE
         $detection_type = $request->detection_type;
-        if($detection_type != 'CAPTURE' && $detection_type != 'REALTIME') {
+        if ($detection_type != 'CAPTURE' && $detection_type != 'REALTIME') {
             return $this->sendError(2, "Tipe deteksi harus berupa CAPTURE atau REALTIME");
         }
 
         // => VALIDATE DETECTION ALGORITHM
         $detection_algorithm = $request->detection_algorithm;
-        if($detection_algorithm != 'YOLOV8-DEPTHINFO' && $detection_algorithm != 'MASKRCNN-SONARROBOT') {
+        if ($detection_algorithm != 'YOLOV8-DEPTHINFO' && $detection_algorithm != 'MASKRCNN-SONARROBOT') {
             return $this->sendError(2, "Algoritma pendeteksian harus berupa YOLOV8-DEPTHINFO atau MASKRCNN-SONARROBOT");
         }
 
         // => VALIDATE DETECTION BY (check if user_code exists)
         $detection_by = $request->detection_by;
         $check_user = DB::table('users')->where('user_code', $detection_by)->first();
-        if(!$check_user) {
+        if (!$check_user) {
             return $this->sendError(2, "User tidak ditemukan");
         }
 
@@ -367,8 +390,8 @@ class DetectionController extends ApiController
     public function destroy(string $detection_code)
     {
         $data = Detection::where('detection_code', $detection_code)
-                    ->where('is_deleted', 0)
-                    ->first();
+            ->where('is_deleted', 0)
+            ->first();
 
         if (!$data) {
             return $this->sendError(1, "Data pendeteksian lubang tidak ditemukan");
@@ -386,5 +409,37 @@ class DetectionController extends ApiController
             DB::rollBack();
             return $this->sendError(2, "Data pendeteksian lubang gagal dihapus", $e->getMessage());
         }
+    }
+
+    public function pothole_maps($latitude = -2.984515005097713, $longitude = 104.73386996077537, $radius = 10)
+    {
+        $potholes = DB::table('detections')
+            ->join('potholes', 'detections.detection_code', '=', 'potholes.pothole_detection_code')
+            ->select('detections.detection_code', 'detections.detection_latitude', 'detections.detection_longitude', 'detections.detection_location', 'detections.detection_image', 'detections.detection_type', 'detections.detection_algorithm', 'detections.detection_by', 'detections.created_at', 'detections.updated_at')
+            ->where('detections.is_deleted', 0)
+            ->where('potholes.is_deleted', 0);
+
+        $total_pothole_detected = $potholes->count();
+        $total_pothole_seriously_damaged = $potholes->where('potholes.pothole_type', 'SERIOUSLY_DAMAGED')->count();
+        $total_pothole_less_damaged = $potholes->where('potholes.pothole_type', 'LESS_DAMAGED')->count();
+
+        $nearbyDetections = Detection::select('*')
+            ->selectRaw(
+                '( 6371 * acos( cos( radians(?) ) * cos( radians( detection_latitude ) ) * cos( radians( detection_longitude ) - radians(?) ) + sin( radians(?) ) * sin( radians( detection_latitude ) ) ) ) AS distance',
+                [$latitude, $longitude, $latitude]
+            )
+            ->having('distance', '<=', $radius)
+            ->orderBy('distance')
+            ->get();
+
+        $data = [
+            'total_pothole_detected' => $total_pothole_detected,
+            'total_pothole_seriously_damaged' => $total_pothole_seriously_damaged,
+            'total_pothole_less_damaged' => $total_pothole_less_damaged,
+            'total_nearby_detections' => count($nearbyDetections),
+            'nearby_detections' => $nearbyDetections,
+        ];
+
+        return $this->sendResponse(0, "Data pendeteksian lubang berhasil ditemukan", $data);
     }
 }
