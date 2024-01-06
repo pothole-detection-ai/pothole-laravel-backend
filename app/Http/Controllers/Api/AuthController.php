@@ -4,8 +4,6 @@ namespace App\Http\Controllers\Api;
 
 use App\Models\User;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
-use App\Http\Controllers\Controller;
 use Illuminate\Support\Facades\Auth;
 use App\Http\Controllers\ApiController;
 
@@ -16,12 +14,11 @@ class AuthController extends ApiController
         $this->middleware('auth:api', ['except' => ['login', 'register']]);
     }
 
-    public function register(Request $request) 
+    public function register(Request $request)
     {
         $rules = [
             'name' => 'required',
             'email' => 'required|unique:users',
-            'whatsapp_number' => 'required|unique:users',
             'password' => 'required',
         ];
 
@@ -32,17 +29,15 @@ class AuthController extends ApiController
         }
 
         $user_code = generateFiledCode('USER');
-        $user_type = 'OWNER';
+        $role = 'MEMBER';
 
         try {
             $data_user = User::create([
                 'user_code' => $user_code,
                 'name' => $request->name,
                 'email' => $request->email,
-                'whatsapp_number' => $request->whatsapp_number,
                 'password' => bcrypt($request->password),
-                'user_type' => $user_type,
-                'is_active' => true,
+                'role' => $role,
                 'is_deleted' => false,
             ]);
 
@@ -59,7 +54,7 @@ class AuthController extends ApiController
         }
     }
 
-    public function login(Request $request) 
+    public function login(Request $request)
     {
         $rules = [
             'email' => 'required',

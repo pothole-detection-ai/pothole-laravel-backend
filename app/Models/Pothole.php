@@ -5,9 +5,10 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
-class ProductPriceVariant extends Model
+class Pothole extends Model
 {
     use HasFactory;
-    protected $table = 'product_price_variants';
+
     protected $guarded = ['id'];
+    protected $table = 'potholes';
 }
