@@ -28,8 +28,6 @@ if (!function_exists('validationMessage')) {
     }
 }
 
-// app/helpers.php
-
 if (!function_exists('storeImage')) {
     /**
      * Store an image from base64 data.
@@ -77,48 +75,48 @@ if (!function_exists('storeImage')) {
 
             // get the image data without the type prefix
             $imageData = substr($imageData, strpos($imageData, ',') + 1);
+        }
 
-            // decode the base64 data
-            $imageData = base64_decode($imageData);
+        // decode the base64 data
+        $imageData = base64_decode($imageData);
 
-            // check if the image was properly decoded
-            if (!$imageData) {
-                return false;
-            }
+        // check if the image was properly decoded
+        if (!$imageData) {
+            return false;
+        }
 
-            // create the image
-            $image = imagecreatefromstring($imageData);
+        // create the image
+        $image = imagecreatefromstring($imageData);
 
-            // check if the image was created
-            if (!$image) {
-                return false;
-            }
+        // check if the image was created
+        if (!$image) {
+            return false;
+        }
 
-            // get the image width and height
-            $width = imagesx($image);
-            $height = imagesy($image);
+        // get the image width and height
+        $width = imagesx($image);
+        $height = imagesy($image);
 
-            // calculate the height from the given width to maintain the aspect ratio
-            $newHeight = floor($height * ($maxWidth / $width));
+        // calculate the height from the given width to maintain the aspect ratio
+        $newHeight = floor($height * ($maxWidth / $width));
 
-            // create a new temporary image
-            $tmp = imagecreatetruecolor($maxWidth, $newHeight);
+        // create a new temporary image
+        $tmp = imagecreatetruecolor($maxWidth, $newHeight);
 
-            // copy and resize the old image into the new temporary image
-            imagecopyresampled($tmp, $image, 0, 0, 0, 0, $maxWidth, $newHeight, $width, $height);
+        // copy and resize the old image into the new temporary image
+        imagecopyresampled($tmp, $image, 0, 0, 0, 0, $maxWidth, $newHeight, $width, $height);
 
-            // create the new image file
-            $imagePath = $folderName . '/' . $imageName . '.jpg';
-            $imagePublicPath = 'public/' . $imagePath;
+        // create the new image file
+        $imagePath = $folderName . '/' . $imageName . '.jpg';
+        $imagePublicPath = 'public/' . $imagePath;
 
 
-            // store the image with imagejpeg
-            $store = imagejpeg($tmp, storage_path('app/' . $imagePublicPath), 100);
+        // store the image with imagejpeg
+        $store = imagejpeg($tmp, storage_path('app/' . $imagePublicPath), 100);
 
-            // check if the image was stored
-            if ($store) {
-                return $imagePath;
-            }
+        // check if the image was stored
+        if ($store) {
+            return $imagePath;
         }
 
         // return false if the image can't be stored

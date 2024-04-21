@@ -14,12 +14,14 @@ return new class extends Migration
         Schema::create('detections', function (Blueprint $table) {
             $table->id();
             $table->string('detection_code', 255);
-            $table->string('detection_latitude', 255);
-            $table->string('detection_longitude', 255);
-            $table->string('detection_image', 255);
-            $table->string('detection_type', 255); // CAPTURE or REALTIME
-            $table->string('detection_algorithm', 255); // YOLOV8-DEPTHINFO or MASKRCNN-SONARROBOT
-            $table->string('detection_by', 255);
+            $table->string('detection_latitude', 255)->nullable();
+            $table->string('detection_longitude', 255)->nullable();
+            $table->string('detection_location', 255)->nullable();
+            $table->string('detection_image', 255)->nullable();
+            $table->string('detection_image_result', 255)->nullable();
+            $table->string('detection_type', 255)->nullable(); // CAPTURE or REALTIME
+            $table->string('detection_algorithm', 255)->nullable(); // YOLOV8-DEPTHINFO or MASKRCNN-SONARROBOT
+            $table->string('detection_by', 255)->nullable();
             $table->boolean('is_deleted')->default(false);
             $table->timestamps();
         });
