@@ -38,6 +38,8 @@ Route::get('run-storage-link', function () {
 
 Route::post('detect', [DetectionController::class, 'detect']);
 Route::post('pothole_depth_collection_data', [DetectionController::class, 'pothole_depth_collection_data']); // PUTRI
+Route::post('saklar', [DetectionController::class, 'saklar']); // PUTRI
+Route::get('get_saklar', [DetectionController::class, 'get_saklar']); // PUTRI
 
 
 Route::group(['middleware' => 'auth:api'], function() {

@@ -7,8 +7,10 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Auth;
 use App\Http\Controllers\ApiController;
+use App\Models\Location;
 use App\Models\Pothole;
 use App\Models\PotholeDepthCollectionData;
+use App\Models\SaklarCollectionData;
 use Illuminate\Support\Facades\Http;
 
 class DetectionController extends ApiController
@@ -753,8 +755,8 @@ class DetectionController extends ApiController
             'depth2' => 'required|numeric',
             'depth3' => 'required|numeric',
             'depth4' => 'required|numeric',
-            'latitude' => 'required|max:255',
-            'longitude' => 'required|max:255',
+            // 'latitude' => 'required|max:255',
+            // 'longitude' => 'required|max:255',
         ];
 
         $validator = validateThis($request, $rules);
@@ -764,18 +766,27 @@ class DetectionController extends ApiController
         }
 
         // => VALIDATE LAT LONG
-        $latitude = $request->latitude;
-        if ($latitude < -90 || $latitude > 90) {
-            return $this->sendError(2, "Nilai latitude tidak valid, harus berada diantara -90 dan 90");
-        }
+        // $latitude = $request->latitude;
+        // if ($latitude < -90 || $latitude > 90) {
+        //     return $this->sendError(2, "Nilai latitude tidak valid, harus berada diantara -90 dan 90");
+        // }
 
-        $longitude = $request->longitude;
-        if ($longitude < -180 || $longitude > 180) {
-            return $this->sendError(2, "Nilai longitude tidak valid, harus berada diantara -180 dan 180");
+        // $longitude = $request->longitude;
+        // if ($longitude < -180 || $longitude > 180) {
+        //     return $this->sendError(2, "Nilai longitude tidak valid, harus berada diantara -180 dan 180");
+        // }
+
+        $saklar_check = SaklarCollectionData::first();
+        if(!$saklar_check || $saklar_check->saklar_status == 0) {
+            return $this->sendError(2, "Saklar belum dinyalakan");
         }
 
         DB::beginTransaction();
         try {
+            $location = Location::first();
+            $latitude = $location->latitude;
+            $longitude = $location->longitude;
+
             $data = PotholeDepthCollectionData::create([
                 'pothole_depth_code' => generateFiledCode('POTHOLE_DEPTH'),
                 'pothole_depth_1' => $request->depth1,
@@ -784,6 +795,10 @@ class DetectionController extends ApiController
                 'pothole_depth_4' => $request->depth4,
                 'pothole_depth_latitude' => $latitude,
                 'pothole_depth_longitude' => $longitude,
+            ]);
+
+            $saklar_check->update([
+                'saklar_status' => 0,
             ]);
 
             DB::commit();
@@ -801,6 +816,57 @@ class DetectionController extends ApiController
             ->orderBy('created_at', 'desc')
             ->get();
 
-        return view('pothole_depth_collection_data', compact('data'));
+        $saklar = SaklarCollectionData::first();
+        if(!$saklar) {
+            SaklarCollectionData::create([
+                'saklar_status' => 0,
+            ]);
+            $saklar = SaklarCollectionData::first();
+        }
+
+        $location = Location::first();
+        if(!$location) {
+            Location::create([
+                'latitude' => 0,
+                'longitude' => 0,
+            ]);
+            $location = Location::first();
+        }
+
+        return view('pothole_depth_collection_data', compact('data', 'saklar', 'location'));
     }
+
+    public function saklar(Request $request)
+    {
+        if ($request->ajax()) {
+            $saklar_status = $request->saklar;
+            $saklar = SaklarCollectionData::first();
+            if($saklar) {
+                $saklar->update([
+                    'saklar_status' => $saklar_status,
+                ]);
+
+                $location = Location::first();
+                if($location) {
+                    $location->update([
+                        'latitude' => $request->latitude,
+                        'longitude' => $request->longitude,
+                    ]);
+                } else {
+                    Location::create([
+                        'latitude' => $request->latitude,
+                        'longitude' => $request->longitude,
+                    ]);
+                }
+            } else {
+                $saklar = SaklarCollectionData::create([
+                    'saklar_status' => $saklar_status,
+                ]);
+            }
+
+            return response()->json($saklar);
+        }
+    }
+
+
 }
