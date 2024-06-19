@@ -52,3 +52,6 @@ Route::get('/', function () {
 });
 
 Route::get('/pothole_depth_collection_data', [DetectionController::class, 'pothole_depth_collection_data_view']);
+Route::get('/privacy-policy', [DetectionController::class, 'privacy_policy']);
+Route::get('/remove-account', [DetectionController::class, 'remove_account']);
+Route::post('/remove-account', [DetectionController::class, 'remove_account_submit']);

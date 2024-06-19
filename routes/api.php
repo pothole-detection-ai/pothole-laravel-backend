@@ -17,24 +17,24 @@ Route::get('run-optimize', function () {
     return "Optimize command output: $optimizeOutput";
 });
 
-Route::get('run-migrate-fresh-seed', function () {
+// Route::get('run-migrate-fresh-seed', function () {
 
-    Artisan::call('migrate:fresh --seed');
-    $output = Artisan::output();
+//     Artisan::call('migrate:fresh --seed');
+//     $output = Artisan::output();
 
-    return "Fresh Migration with seed command output: $output";
-});
+//     return "Fresh Migration with seed command output: $output";
+// });
 
-Route::get('run-storage-link', function () {
-    $target_folder = base_path().'/storage/app/public';
-    $link_folder = $_SERVER['DOCUMENT_ROOT'].'/storage';
-    symlink($target_folder, $link_folder);
+// Route::get('run-storage-link', function () {
+//     $target_folder = base_path().'/storage/app/public';
+//     $link_folder = $_SERVER['DOCUMENT_ROOT'].'/storage';
+//     symlink($target_folder, $link_folder);
 
-    Artisan::call('storage:link');
-    $storageLinkOutput = Artisan::output();
+//     Artisan::call('storage:link');
+//     $storageLinkOutput = Artisan::output();
 
-    return "Storage link command output: $storageLinkOutput";
-});
+//     return "Storage link command output: $storageLinkOutput";
+// });
 
 Route::post('detect', [DetectionController::class, 'detect']);
 Route::post('pothole_depth_collection_data', [DetectionController::class, 'pothole_depth_collection_data']); // PUTRI

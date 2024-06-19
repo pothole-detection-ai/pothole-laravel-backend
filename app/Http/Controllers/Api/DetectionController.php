@@ -2,16 +2,20 @@
 
 namespace App\Http\Controllers\Api;
 
+use Log;
+use App\Models\User;
+use App\Models\Pothole;
+use App\Models\Location;
 use App\Models\Detection;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Auth;
-use App\Http\Controllers\ApiController;
-use App\Models\Location;
-use App\Models\Pothole;
-use App\Models\PotholeDepthCollectionData;
 use App\Models\SaklarCollectionData;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Http;
+use App\Http\Controllers\ApiController;
+use Illuminate\Support\Facades\Validator;
+use App\Models\PotholeDepthCollectionData;
 
 class DetectionController extends ApiController
 {
@@ -21,6 +25,224 @@ class DetectionController extends ApiController
             ->get();
 
         return $this->sendResponse(0, "Data pendeteksian lubang berhasil ditemukan", $data);
+    }
+
+
+    public function detect(Request $request)
+    {
+        $rules = [
+            'detection_latitude' => 'required|max:255',
+            'detection_longitude' => 'required|max:255',
+            'detection_image' => 'required',
+            'detection_by' => 'required|max:255',
+        ];
+
+        $validator = validateThis($request, $rules);
+
+        if ($validator->fails()) {
+            return $this->sendError(1, 'Parameter tidak terpenuhi', validationMessage($validator->errors()));
+        }
+
+        // => VALIDATE LAT LONG
+        $detection_latitude = $request->detection_latitude;
+        if ($detection_latitude < -90 || $detection_latitude > 90) {
+            return $this->sendError(2, "Nilai latitude tidak valid, harus berada diantara -90 dan 90");
+        }
+
+        $detection_longitude = $request->detection_longitude;
+        if ($detection_longitude < -180 || $detection_longitude > 180) {
+            return $this->sendError(2, "Nilai longitude tidak valid, harus berada diantara -180 dan 180");
+        }
+
+        // => VALIDATE DETECTION BY (check if user_code exists)
+        $detection_by = $request->detection_by;
+        $check_user = DB::table('users')->where('user_code', $detection_by)->first();
+        if (!$check_user) {
+            return $this->sendError(2, "User tidak ditemukan");
+        }
+
+        $base64_image_string = $request->detection_image;
+        $base64_image_string = str_replace('data:image/png;base64,', '', $base64_image_string);
+        $base64_image_string = str_replace('data:image/jpeg;base64,', '', $base64_image_string);
+        $base64_image_string = str_replace('data:image/jpg;base64,', '', $base64_image_string);
+
+        // ACTUAL HIT FLASK API
+        try {
+            $response = Http::timeout(240)->post("https://vps.potion.my.id/detect", [
+                'base64_image_string' => $base64_image_string,
+            ]);
+
+            $response = $response->json();
+        } catch (\Exception $e) {
+            // \Log::error('Error during API request: ' . $e->getMessage());
+            // return $this->sendError(2, "Failed to load data", $e->getMessage());
+            $response = [
+                'base64_image_string' => $base64_image_string,
+                'total_objects' => 0,
+            ];
+        }
+
+        $base64_detected_image_string = $response['base64_image_string'];
+        $total_pothole = $response['total_objects'];
+        $objects = $response['objects'];
+
+
+        // INSERT TO DATABASE
+        $original_image_name = generateFiledCode('ORIGINAL_IMAGE');
+        $original_image_folder = 'original_images';
+        $original_image_path = storeImage($base64_image_string, $original_image_folder, $original_image_name);
+        if (!$original_image_path) {
+            return $this->sendError(2, "Gambar harus berbentuk base64 atau URL");
+        }
+
+        $detected_image_name = generateFiledCode('DETECTED_IMAGE');
+        $detected_image_folder = 'detected_images';
+        $detected_image_path = storeImage($base64_detected_image_string, $detected_image_folder, $detected_image_name);
+        if (!$detected_image_path) {
+            return $this->sendError(2, "Gambar harus berbentuk base64 atau URL");
+        }
+
+        DB::beginTransaction();
+        try {
+            $detection_code = generateFiledCode('DETECTION');
+
+            // HIT API REVERSE GEOCODING TO GET DETECTION LOCATION
+            $api_reverse_geocoding = "https://geocode.maps.co/reverse?lat=" . $detection_latitude . "&lon=" . $detection_longitude . "&api_key=65975f7d3f14b145509135xly6961bd";
+            $request_api_reverse_geocoding = file_get_contents($api_reverse_geocoding);
+
+            // check if request_api_reverse_geocoding is false
+            if (!$request_api_reverse_geocoding) {
+                return $this->sendError(2, "Gagal mendapatkan lokasi pendeteksian lubang");
+            }
+
+            $request_api_reverse_geocoding = json_decode($request_api_reverse_geocoding, true);
+            $detection_location = $request_api_reverse_geocoding['display_name'];
+
+            $data = Detection::create([
+                'detection_code' => $detection_code,
+                'detection_latitude' => $detection_latitude,
+                'detection_longitude' => $detection_longitude,
+                'detection_location' => $detection_location,
+                'detection_image' => $original_image_path,
+                'detection_image_result' => $detected_image_path,
+                'detection_by' => $detection_by,
+            ]);
+
+            $potholes = [];
+            for ($i = 1; $i <= $total_pothole; $i++) {
+                $potholes[] = Pothole::create([
+                    'pothole_code' => generateFiledCode('POTHOLE'),
+                    'pothole_detection_code' => $detection_code,
+                    'pothole_object_number' => strval($i),
+                    'pothole_type' => 'SERIOUSLY_DAMAGED',
+                    'pothole_length' => strval($objects['potholes_' . $i]['length']),
+                    'pothole_width' => strval($objects['potholes_' . $i]['width']),
+                    'pothole_height' => strval($objects['potholes_' . $i]['distance']),
+                ]);
+            }
+
+            $data['potholes'] = $potholes;
+
+            DB::commit();
+
+            return $this->sendResponse(0, "Data pendeteksian berhasil ditambahkan", $data);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error('Database transaction error: ' . $e->getMessage());
+            return $this->sendError(2, "Data pendeteksian gagal ditambahkan", $e->getMessage());
+        }
+    }
+
+
+    public function pothole_maps($latitude = -2.984515005097713, $longitude = 104.73386996077537, $radius = 10)
+    {
+        $conditions = [
+            'detections.is_deleted' => 0,
+            'potholes.is_deleted' => 0,
+        ];
+
+        $total_pothole_detected = $this->countPotholes($conditions);
+
+        $conditions['potholes.pothole_type'] = 'SERIOUSLY_DAMAGED';
+        $total_pothole_seriously_damaged = $this->countPotholes($conditions);
+
+        $conditions['potholes.pothole_type'] = 'LESS_DAMAGED';
+        $total_pothole_less_damaged = $this->countPotholes($conditions);
+
+        $nearbyDetections = $this->getNearbyDetections($latitude, $longitude, $radius);
+
+        $total_pothole_nearby = count($nearbyDetections) * 5;
+
+        // ASUMSI
+        $point_of_sdi1 = 0;
+        $point_of_sdi2 = 0;
+        $point_of_sdi4 = 0;
+
+        //SDI 3 = (total pothole / panjang jalan / km)
+        $asumsi_radius_ke_panjang_jalan = $radius / 2;
+        $asumsi_total_pothole_berdasarkan_radius = $total_pothole_nearby / $asumsi_radius_ke_panjang_jalan;
+        switch (true){
+            case ($asumsi_total_pothole_berdasarkan_radius <= 10):
+                $point_of_sdi3 = 15;
+                break;
+            case ($asumsi_total_pothole_berdasarkan_radius > 10 && $asumsi_total_pothole_berdasarkan_radius <= 50):
+                $point_of_sdi3 = 75;
+                break;
+            case ($asumsi_total_pothole_berdasarkan_radius > 50):
+                $point_of_sdi3 = 225;
+                break;
+            default:
+                $point_of_sdi3 = 0;
+                break;
+        }
+
+        $total_point_sdi = $point_of_sdi1 + $point_of_sdi2 + $point_of_sdi3 + $point_of_sdi4;
+
+        switch (true) {
+            case ($total_point_sdi <= 50):
+                $sdi = 'Baik';
+                break;
+            case ($total_point_sdi > 50 && $total_point_sdi <= 100):
+                $sdi = 'Sedang';
+                break;
+            case ($total_point_sdi > 100 && $total_point_sdi <= 150):
+                $sdi = 'Rusak Ringan';
+                break;
+            case ($total_point_sdi > 150):
+                $sdi = 'Rusak Berat';
+                break;
+            default:
+                $sdi = 'Tidak Diketahui';
+                break;
+        }
+
+
+        $data = [
+            'total_pothole_detected' => $total_pothole_detected,
+            'total_pothole_seriously_damaged' => $total_pothole_seriously_damaged,
+            'total_pothole_less_damaged' => $total_pothole_less_damaged,
+            'point_of_sdi3' => $point_of_sdi3,
+            'road_status_by_sdi' => $sdi,
+            'total_pothole_nearby' => $total_pothole_nearby,
+            'center_latitude' => $latitude,
+            'center_longitude' => $longitude,
+            'nearby_detections' => $nearbyDetections,
+        ];
+
+        return $this->sendResponse(0, "Data pendeteksian lubang berhasil ditemukan", $data);
+    }
+
+    protected function getNearbyDetections($latitude, $longitude, $radius)
+    {
+        return DB::table('detections')
+            ->join('potholes', 'detections.detection_code', '=', 'potholes.pothole_detection_code')
+            ->select('detections.detection_code', 'detections.detection_latitude', 'detections.detection_longitude', 'detections.detection_location', 'detections.detection_image', 'detections.detection_type', 'detections.detection_algorithm', 'detections.detection_by', 'detections.created_at', 'detections.updated_at')
+            ->selectRaw('( 6371 * acos( cos( radians(?) ) * cos( radians( detection_latitude ) ) * cos( radians( detection_longitude ) - radians(?) ) + sin( radians(?) ) * sin( radians( detection_latitude ) ) ) ) AS distance', [$latitude, $longitude, $latitude])
+            ->where('detections.is_deleted', 0)
+            ->where('potholes.is_deleted', 0)
+            ->having('distance', '<=', $radius)
+            ->orderBy('distance')
+            ->get();
     }
 
 
@@ -417,172 +639,12 @@ class DetectionController extends ApiController
         }
     }
 
-    public function pothole_maps($latitude = -2.984515005097713, $longitude = 104.73386996077537, $radius = 10)
-    {
-        $conditions = [
-            'detections.is_deleted' => 0,
-            'potholes.is_deleted' => 0,
-        ];
-
-        $total_pothole_detected = $this->countPotholes($conditions);
-
-        $conditions['potholes.pothole_type'] = 'SERIOUSLY_DAMAGED';
-        $total_pothole_seriously_damaged = $this->countPotholes($conditions);
-
-        $conditions['potholes.pothole_type'] = 'LESS_DAMAGED';
-        $total_pothole_less_damaged = $this->countPotholes($conditions);
-
-        $nearbyDetections = $this->getNearbyDetections($latitude, $longitude, $radius);
-
-        $data = [
-            'total_pothole_detected' => $total_pothole_detected,
-            'total_pothole_seriously_damaged' => $total_pothole_seriously_damaged,
-            'total_pothole_less_damaged' => $total_pothole_less_damaged,
-            'center_latitude' => $latitude,
-            'center_longitude' => $longitude,
-            'nearby_detections' => $nearbyDetections,
-        ];
-
-        return $this->sendResponse(0, "Data pendeteksian lubang berhasil ditemukan", $data);
-    }
-
     protected function countPotholes($conditions)
     {
         return DB::table('detections')
             ->join('potholes', 'detections.detection_code', '=', 'potholes.pothole_detection_code')
             ->where($conditions)
             ->count();
-    }
-
-    protected function getNearbyDetections($latitude, $longitude, $radius)
-    {
-        return DB::table('detections')
-            ->join('potholes', 'detections.detection_code', '=', 'potholes.pothole_detection_code')
-            ->select('detections.detection_code', 'detections.detection_latitude', 'detections.detection_longitude', 'detections.detection_location', 'detections.detection_image', 'detections.detection_type', 'detections.detection_algorithm', 'detections.detection_by', 'detections.created_at', 'detections.updated_at')
-            ->selectRaw('( 6371 * acos( cos( radians(?) ) * cos( radians( detection_latitude ) ) * cos( radians( detection_longitude ) - radians(?) ) + sin( radians(?) ) * sin( radians( detection_latitude ) ) ) ) AS distance', [$latitude, $longitude, $latitude])
-            ->where('detections.is_deleted', 0)
-            ->where('potholes.is_deleted', 0)
-            ->having('distance', '<=', $radius)
-            ->orderBy('distance')
-            ->get();
-    }
-
-    // FLASK API
-    public function detect(Request $request)
-    {
-        $rules = [
-            'detection_latitude' => 'required|max:255',
-            'detection_longitude' => 'required|max:255',
-            'detection_image' => 'required',
-            // 'detection_type' => 'required|max:255', // CAPTURE or REALTIME
-            // 'detection_algorithm' => 'required|max:255', // YOLOV8-DEPTHINFO or MASKRCNN-SONARROBOT
-            'detection_by' => 'required|max:255',
-            // 'pothole_data' => 'required',
-        ];
-
-        $validator = validateThis($request, $rules);
-
-        if ($validator->fails()) {
-            return $this->sendError(1, 'Parameter tidak terpenuhi', validationMessage($validator->errors()));
-        }
-
-        // => VALIDATE LAT LONG
-        $detection_latitude = $request->detection_latitude;
-        if ($detection_latitude < -90 || $detection_latitude > 90) {
-            return $this->sendError(2, "Nilai latitude tidak valid, harus berada diantara -90 dan 90");
-        }
-
-        $detection_longitude = $request->detection_longitude;
-        if ($detection_longitude < -180 || $detection_longitude > 180) {
-            return $this->sendError(2, "Nilai longitude tidak valid, harus berada diantara -180 dan 180");
-        }
-
-        // => VALIDATE DETECTION BY (check if user_code exists)
-        $detection_by = $request->detection_by;
-        $check_user = DB::table('users')->where('user_code', $detection_by)->first();
-        if (!$check_user) {
-            return $this->sendError(2, "User tidak ditemukan");
-        }
-
-
-        $base64_image_string = $request->detection_image;
-
-        $base64_image_string = str_replace('data:image/png;base64,', '', $base64_image_string);
-        $base64_image_string = str_replace('data:image/jpeg;base64,', '', $base64_image_string);
-        $base64_image_string = str_replace('data:image/jpg;base64,', '', $base64_image_string);
-
-        $base64_image_string = $this->cropAndResizeBase64Image($base64_image_string);
-
-        $response = Http::post(env('FLASK_API_URL') . '/detect', [
-            'base64_image_string' => $base64_image_string,
-        ]);
-        $response = $response->json();
-        $total_pothole = $response['total_objects'];
-        $base64_detected_image_string = $response['base64_image_string'];
-
-        // INSERT TO DATABASE
-        $original_image_name = generateFiledCode('ORIGINAL_IMAGE');
-        $original_image_folder = 'original_images';
-        $original_image_path = storeImage($base64_image_string, $original_image_folder, $original_image_name);
-        if (!$original_image_path) {
-            return $this->sendError(2, "Gambar harus berbentuk base64 atau URL");
-        }
-
-        $detected_image_name = generateFiledCode('DETECTED_IMAGE');
-        $detected_image_folder = 'detected_images';
-        $detected_image_path = storeImage($base64_detected_image_string, $detected_image_folder, $detected_image_name);
-        if (!$detected_image_path) {
-            return $this->sendError(2, "Gambar harus berbentuk base64 atau URL");
-        }
-
-        DB::beginTransaction();
-        try {
-            $detection_code = generateFiledCode('DETECTION');
-            // HIT API REVERSE GEOCODING TO GET DETECTION LOCATION
-            $api_reverse_geocoding = "https://geocode.maps.co/reverse?lat=" . $detection_latitude . "&lon=" . $detection_longitude . "&api_key=65975f7d3f14b145509135xly6961bd";
-            $request_api_reverse_geocoding = file_get_contents($api_reverse_geocoding);
-            // check if request_api_reverse_geocoding is false
-            if (!$request_api_reverse_geocoding) {
-                return $this->sendError(2, "Gagal mendapatkan lokasi pendeteksian lubang");
-            }
-            $request_api_reverse_geocoding = json_decode($request_api_reverse_geocoding, true);
-            $detection_location = $request_api_reverse_geocoding['display_name'];
-
-            $data = Detection::create([
-                'detection_code' => $detection_code,
-                'detection_latitude' => $detection_latitude,
-                'detection_longitude' => $detection_longitude,
-                'detection_location' => $detection_location,
-                'detection_image' => $original_image_path,
-                'detection_image_result' => $detected_image_path,
-                'detection_by' => $detection_by,
-            ]);
-
-            $potholes = [];
-            for ($i = 1; $i <= $total_pothole; $i++) {
-                $potholes[] = Pothole::create([
-                    'pothole_code' => generateFiledCode('POTHOLE'),
-                    'pothole_detection_code' => $detection_code,
-                    'pothole_object_number' => strval($i),
-                    'pothole_type' => 'SERIOUSLY_DAMAGED',
-                    'pothole_length' => strval(mt_rand(3, 7)),
-                    'pothole_width' => strval(mt_rand(3, 7)),
-                    'pothole_height' => strval(mt_rand(1, 3)),
-                ]);
-            }
-
-            $data['potholes'] = $potholes;
-
-            DB::commit();
-
-
-            return $this->sendResponse(0, "Data pendeteksian berhasil ditambahkan", $data);
-        } catch (\Exception $e) {
-            DB::rollBack();
-            return $this->sendError(2, "Data pendeteksian gagal ditambahkan", $e->getMessage());
-        }
-
-        return response()->json($response);
     }
 
     protected function cropAndResizeBase64Image($base64ImageString, $width = 960, $height = 540)
@@ -777,7 +839,7 @@ class DetectionController extends ApiController
         // }
 
         $saklar_check = SaklarCollectionData::first();
-        if(!$saklar_check || $saklar_check->saklar_status == 0) {
+        if (!$saklar_check || $saklar_check->saklar_status == 0) {
             return $this->sendError(2, "Saklar belum dinyalakan");
         }
 
@@ -817,7 +879,7 @@ class DetectionController extends ApiController
             ->get();
 
         $saklar = SaklarCollectionData::first();
-        if(!$saklar) {
+        if (!$saklar) {
             SaklarCollectionData::create([
                 'saklar_status' => 0,
             ]);
@@ -825,7 +887,7 @@ class DetectionController extends ApiController
         }
 
         $location = Location::first();
-        if(!$location) {
+        if (!$location) {
             Location::create([
                 'latitude' => 0,
                 'longitude' => 0,
@@ -841,13 +903,13 @@ class DetectionController extends ApiController
         if ($request->ajax()) {
             $saklar_status = $request->saklar;
             $saklar = SaklarCollectionData::first();
-            if($saklar) {
+            if ($saklar) {
                 $saklar->update([
                     'saklar_status' => $saklar_status,
                 ]);
 
                 $location = Location::first();
-                if($location) {
+                if ($location) {
                     $location->update([
                         'latitude' => $request->latitude,
                         'longitude' => $request->longitude,
@@ -868,5 +930,41 @@ class DetectionController extends ApiController
         }
     }
 
+    public function privacy_policy()
+    {
+        return view('privacy_policy');
+    }
 
+    public function remove_account()
+    {
+        return view('remove_account');
+    }
+
+    public function remove_account_submit(Request $request)
+    {
+        $rules = [
+            'email' => 'required|email',
+            'password' => 'required',
+            'checklist_accepted' => 'required',
+        ];
+
+        // return to previous page if validation fails with session error
+        $validator = Validator::make($request->all(), $rules);
+        if ($validator->fails()) {
+            return redirect()->back()->with('error', 'Mohon isi semua field');
+        }
+
+        $user = User::where('email', $request->email)->first();
+        if (!$user) {
+            return redirect()->back()->with('error', 'Email tidak ditemukan');
+        }
+
+        if (!Hash::check($request->password, $user->password)) {
+            return redirect()->back()->with('error', 'Password salah');
+        }
+
+        $user->delete();
+
+        return redirect()->back()->with('success', 'Akun berhasil dihapus');
+    }
 }
