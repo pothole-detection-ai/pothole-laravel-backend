@@ -21,7 +21,6 @@ class DatabaseSeeder extends Seeder
      */
     public function run(): void
     {
-
         $user = User::create([
             'user_code' => "USER-0001",
             'name' => "Aditya",
